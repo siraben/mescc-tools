@@ -44,3 +44,10 @@ exec_enable-footer.M1
 exec_enable.M1
 exec_enable.hex2
 
+# Ignore local fuzzing state
+flake.lock
+result
+core.*
+fuzz/corpus-*/
+fuzz/findings-*/
+fuzz/crashes-*/
