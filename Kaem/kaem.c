@@ -956,6 +956,11 @@ int _execute(FILE* script, char** argv)
 	/* exec without forking */
 	int exec = FALSE;
 
+	if((NULL == token) || (NULL == token->value) || match("", token->value))
+	{
+		return FAILURE;
+	}
+
 	/* Actually do the execution */
 	if(is_envar(token->value) == TRUE)
 	{

@@ -34,6 +34,7 @@ LANG=C ../bin/kaem -f "test/test14/kaem.test" >| "test/results/test14-output" 2>
 LANG=C ../bin/kaem -f "test/test15/kaem.test" >| "test/results/test15-output"
 LANG=C ../bin/kaem -f "test/test16/kaem.test" >| "test/results/test16-output"
 LANG=C ../bin/kaem -f "test/test17/kaem.test" >| "test/results/test17-output"
+LANG=C ../bin/kaem -f "test/test18/kaem.test" >| "test/results/test18-output"
 . ../sha256.sh
 sha256_check test/test.answers
 echo "kaem tests complete"
