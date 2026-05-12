@@ -200,8 +200,8 @@ void variable_all(char** argv, struct Token* n)
 	while(!match("--", hold))
 	{
 		i = i + 1;
-		hold = argv[i];
 		if(argv_length == i) break;
+		hold = argv[i];
 	}
 
 	/* put i = i + 1 in the for initialization to skip past the -- */
@@ -217,6 +217,13 @@ void variable_all(char** argv, struct Token* n)
 		n->value[index] = ' ';
 		index = index + 1;
 	}
+
+	if(0 == index)
+	{
+		n->value[0] = 0;
+		return;
+	}
+
 	/* Remove trailing space */
 	index = index - 1;
 	n->value[index] = 0;
