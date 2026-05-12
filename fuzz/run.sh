@@ -21,16 +21,17 @@ if [ ! -d fuzz/corpus-m1 ] || [ ! -d fuzz/corpus-hex2 ] || [ ! -d fuzz/corpus-ka
 fi
 
 : "${DURATION:=600}"
-: "${TIMEOUT:=100}"
 : "${AFL_FLAGS:=}"
 export AFL_SKIP_CPUFREQ="${AFL_SKIP_CPUFREQ:-1}"
 export AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES="${AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES:-1}"
 
 resume_seed=""
+default_timeout=100
 case "$target" in
   m1)
     corpus=${CORPUS:-fuzz/corpus-m1}
     out=${OUTDIR:-fuzz/findings-m1}
+    default_timeout=250
     cmd=(bin/M1 --little-endian --architecture x86 -f @@ -o /dev/null)
     ;;
   hex2)
@@ -53,6 +54,8 @@ case "$target" in
     exit 2
     ;;
 esac
+
+: "${TIMEOUT:=$default_timeout}"
 
 if [ -d "$out/default/queue" ]; then
   resume_seed=$(find "$out/default/queue" -maxdepth 1 -type f -name 'id:*' -print -quit 2>/dev/null || true)
