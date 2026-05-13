@@ -22,10 +22,12 @@ temp/
 
 # Ignore test result directory
 test/results/
+repro/tiny-make-linked-list/build/
 
 # Ignore temp and special files
 *.tst
 *.qst
+core.*
 
 # Ignore bootstrap build files
 M1-macro-footer.M1
@@ -43,4 +45,3 @@ get_machine.hex2
 exec_enable-footer.M1
 exec_enable.M1
 exec_enable.hex2
-
