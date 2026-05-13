@@ -3,8 +3,8 @@ set -euo pipefail
 
 LIVE_BOOTSTRAP=${LIVE_BOOTSTRAP:-../live-bootstrap-fuzz}
 
-rm -rf fuzz/corpus-m1 fuzz/corpus-hex2 fuzz/corpus-kaem fuzz/corpus-blood-elf
-mkdir -p fuzz/corpus-m1 fuzz/corpus-hex2 fuzz/corpus-kaem fuzz/corpus-blood-elf
+rm -rf fuzz/corpus-m1 fuzz/corpus-hex2 fuzz/corpus-kaem fuzz/corpus-blood-elf fuzz/corpus-cc-x86
+mkdir -p fuzz/corpus-m1 fuzz/corpus-hex2 fuzz/corpus-kaem fuzz/corpus-blood-elf fuzz/corpus-cc-x86
 
 copy_seed() {
   local dst=$1
@@ -38,6 +38,10 @@ printf 'DEFINE NOP 90\nNOP\n' > fuzz/corpus-m1/minimal-define
 printf ':start\n90\n' > fuzz/corpus-hex2/minimal-label
 printf 'echo hello\nset FOO bar\n' > fuzz/corpus-kaem/minimal-builtins
 printf ':_start\n:start\n90\n' > fuzz/corpus-blood-elf/minimal-labels
+printf 'int main() { return 0; }\n' > fuzz/corpus-cc-x86/minimal-main
+printf 'int x;\nint main() { x = 1; return x; }\n' > fuzz/corpus-cc-x86/global-assign
+printf 'int main() { if (1) return 2; else return 3; }\n' > fuzz/corpus-cc-x86/if-else
+printf 'int main() { int i; i = 0; while (i < 3) i = i + 1; return i; }\n' > fuzz/corpus-cc-x86/while-loop
 
-find fuzz/corpus-m1 fuzz/corpus-hex2 fuzz/corpus-kaem fuzz/corpus-blood-elf -maxdepth 1 -type f -printf '%h\n' |
+find fuzz/corpus-m1 fuzz/corpus-hex2 fuzz/corpus-kaem fuzz/corpus-blood-elf fuzz/corpus-cc-x86 -maxdepth 1 -type f -printf '%h\n' |
   sort | uniq -c

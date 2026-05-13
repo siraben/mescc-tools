@@ -6,6 +6,8 @@ This worktree fuzzes the bootstrap-stage input formats directly:
 - `hex2`: hex0/hex1/hex2-style hex/linker input.
 - `blood-elf`: M1 assembly labels used to produce debug footer metadata.
 - `kaem`: kaem scripts, using `--fuzz` so parsed commands are not executed.
+- `cc_x86`: the stage0 x86 bootstrap C compiler. This target is hand-written
+  assembly, so it defaults to AFL++ dumb/black-box mode (`CC_X86_AFL_MODE=-n`).
 
 Start from the Nix shell:
 
@@ -17,6 +19,7 @@ DURATION=600 ./fuzz/run.sh m1
 DURATION=600 ./fuzz/run.sh hex2
 DURATION=600 ./fuzz/run.sh blood-elf
 DURATION=600 ./fuzz/run.sh kaem
+DURATION=600 ./fuzz/run.sh cc_x86
 ```
 
 The `hex2` target is the one to use for hex0-style assembly material. The
@@ -33,4 +36,5 @@ Useful overrides:
 ```sh
 CORPUS=fuzz/corpus-hex2 OUTDIR=fuzz/findings-hex2 TIMEOUT=50 DURATION=3600 ./fuzz/run.sh hex2
 AFL_FLAGS="-z -G 1024" TIMEOUT=100 DURATION=3600 ./fuzz/run.sh m1
+DURATION=3600 ./fuzz/run.sh cc_x86
 ```

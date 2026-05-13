@@ -51,3 +51,4 @@ core.*
 fuzz/corpus-*/
 fuzz/findings-*/
 fuzz/crashes-*/
+fuzz/cc_x86/
