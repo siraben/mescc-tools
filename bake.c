@@ -11,9 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <fcntl.h>
 #ifndef __M2__
-#include <dirent.h>
 #include <sys/wait.h>
 #endif
 
@@ -24,7 +22,6 @@
 #define MAX_COMMANDS 128
 #define MAX_ENV 512
 #define MAX_WORD 4096
-#define DIRENT_BUF 4096
 
 #define MARK_NONE 0
 #define MARK_TEMP 1
@@ -49,20 +46,6 @@ int target_count;
 char** global_envp;
 int global_envc;
 char* active_target;
-
-#ifdef __M2__
-int getdents(int fd, char* dirp, int count)
-{
-	asm("lea_ebx,[esp+DWORD] %12"
-	    "mov_ebx,[ebx]"
-	    "lea_ecx,[esp+DWORD] %8"
-	    "mov_ecx,[ecx]"
-	    "lea_edx,[esp+DWORD] %4"
-	    "mov_edx,[edx]"
-	    "mov_eax, %141"
-	    "int !0x80");
-}
-#endif
 
 void die(char* message)
 {
@@ -268,82 +251,6 @@ void read_makefile(char* filename)
 	fclose(in);
 }
 
-int has_glob(char* word)
-{
-	int i = 0;
-	while(0 != word[i])
-	{
-		if('*' == word[i]) return 1;
-		if('?' == word[i]) return 1;
-		i = i + 1;
-	}
-	return 0;
-}
-
-int glob_match(char* pattern, char* name)
-{
-	if(0 == pattern[0]) return 0 == name[0];
-	if('*' == pattern[0])
-	{
-		if(glob_match(pattern + 1, name)) return 1;
-		if(0 == name[0]) return 0;
-		return glob_match(pattern, name + 1);
-	}
-	if('?' == pattern[0])
-	{
-		if(0 == name[0]) return 0;
-		return glob_match(pattern + 1, name + 1);
-	}
-	if(pattern[0] != name[0]) return 0;
-	return glob_match(pattern + 1, name + 1);
-}
-
-int read_u16(char* p)
-{
-	int lo = p[0];
-	int hi = p[1];
-	if(0 > lo) lo = lo + 256;
-	if(0 > hi) hi = hi + 256;
-	return lo + (hi * 256);
-}
-
-void split_glob_path(char* word, char** dir, char** prefix, char** pattern)
-{
-	int i = 0;
-	int last_slash = -1;
-	while(0 != word[i])
-	{
-		if('/' == word[i]) last_slash = i;
-		i = i + 1;
-	}
-
-	if(-1 == last_slash)
-	{
-		*dir = ".";
-		*prefix = "";
-		*pattern = word;
-		return;
-	}
-	if(0 == last_slash)
-	{
-		*dir = "/";
-		*prefix = "/";
-		*pattern = word + 1;
-		return;
-	}
-	*dir = copy_range(word, 0, last_slash);
-	*prefix = copy_range(word, 0, last_slash + 1);
-	*pattern = word + last_slash + 1;
-}
-
-char* join_prefix(char* prefix, char* name)
-{
-	char* out = calloc(strlen(prefix) + strlen(name) + 1, sizeof(char));
-	strcpy(out, prefix);
-	strcat(out, name);
-	return out;
-}
-
 void append_arg(struct Arg** head, struct Arg** tail, int* argc, char* value)
 {
 	struct Arg* arg;
@@ -369,72 +276,6 @@ char** args_to_argv(struct Arg* head)
 	}
 	argv[argc] = NULL;
 	return argv;
-}
-
-int append_glob(struct Arg** head, struct Arg** tail, int* argc, char* word)
-{
-	char* dir;
-	char* prefix;
-	char* pattern;
-#ifdef __M2__
-	char* buffer = calloc(DIRENT_BUF, sizeof(char));
-	int fd;
-	int read_count;
-	int offset;
-	int reclen;
-#else
-	DIR* d;
-	struct dirent* entry;
-#endif
-	char* name;
-	int matches = 0;
-
-	split_glob_path(word, &dir, &prefix, &pattern);
-#ifdef __M2__
-	fd = _open(dir, O_RDONLY, 0);
-	if(0 > fd) return 0;
-
-	read_count = getdents(fd, buffer, DIRENT_BUF);
-	while(0 < read_count)
-	{
-		offset = 0;
-		while(offset < read_count)
-		{
-			reclen = read_u16(buffer + offset + 8);
-			name = buffer + offset + 10;
-			if((0 != strcmp(name, ".")) && (0 != strcmp(name, "..")))
-			{
-				if(glob_match(pattern, name))
-				{
-					append_arg(head, tail, argc, join_prefix(prefix, name));
-					matches = matches + 1;
-				}
-			}
-			offset = offset + reclen;
-		}
-		read_count = getdents(fd, buffer, DIRENT_BUF);
-	}
-	close(fd);
-#else
-	d = opendir(dir);
-	if(NULL == d) return 0;
-	entry = readdir(d);
-	while(NULL != entry)
-	{
-		name = entry->d_name;
-		if((0 != strcmp(name, ".")) && (0 != strcmp(name, "..")))
-		{
-			if(glob_match(pattern, name))
-			{
-				append_arg(head, tail, argc, join_prefix(prefix, name));
-				matches = matches + 1;
-			}
-		}
-		entry = readdir(d);
-	}
-	closedir(d);
-#endif
-	return matches;
 }
 
 char* lookup_env(char* name)
@@ -494,15 +335,6 @@ void set_env(char* name, char* value)
 	global_envp[global_envc] = NULL;
 }
 
-int var_char(int c)
-{
-	if(('a' <= c) && (c <= 'z')) return 1;
-	if(('A' <= c) && (c <= 'Z')) return 1;
-	if(('0' <= c) && (c <= '9')) return 1;
-	if('_' == c) return 1;
-	return 0;
-}
-
 char* expand_vars(char* word)
 {
 	char* out = calloc(MAX_WORD, sizeof(char));
@@ -543,17 +375,12 @@ char* expand_vars(char* word)
 				continue;
 			}
 			else
-			{
-				start = i;
-				while(var_char(word[i])) i = i + 1;
-				end = i;
-			}
+				die("unsupported variable syntax");
 
 			if(end == start)
-			{
-				out[j] = '$';
-				j = j + 1;
-			}
+				die("empty variable name");
+			if('}' != word[i - 1])
+				die("unterminated variable");
 			else
 			{
 				name = copy_range(word, start, end);
@@ -589,7 +416,6 @@ char** split_command(char* line)
 	int i = 0;
 	int start;
 	char* word;
-	int matches;
 	while(0 != line[i])
 	{
 		while(is_space(line[i])) i = i + 1;
@@ -598,12 +424,7 @@ char** split_command(char* line)
 		while((0 != line[i]) && !is_space(line[i])) i = i + 1;
 		word = copy_range(line, start, i);
 		word = expand_vars(word);
-		if(has_glob(word))
-		{
-			matches = append_glob(&head, &tail, &argc, word);
-			if(0 == matches) append_arg(&head, &tail, &argc, word);
-		}
-		else append_arg(&head, &tail, &argc, word);
+		append_arg(&head, &tail, &argc, word);
 	}
 	return args_to_argv(head);
 }
