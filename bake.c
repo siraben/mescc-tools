@@ -1,0 +1,766 @@
+/* Copyright (C) 2026
+ * This file is part of mescc-tools.
+ *
+ * mescc-tools is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+#ifndef __M2__
+#include <dirent.h>
+#include <sys/wait.h>
+#endif
+
+#define MAX_LINE 4096
+#define MAX_ARGS 512
+#define MAX_TARGETS 256
+#define MAX_DEPS 64
+#define MAX_COMMANDS 128
+#define MAX_ENV 512
+#define MAX_WORD 4096
+#define DIRENT_BUF 4096
+
+#define MARK_NONE 0
+#define MARK_TEMP 1
+#define MARK_DONE 2
+
+struct Target {
+	char* name;
+	char** deps;
+	int dep_count;
+	char** commands;
+	int command_count;
+	int mark;
+};
+
+struct Arg {
+	char* value;
+	struct Arg* next;
+};
+
+struct Target** targets;
+int target_count;
+char** global_envp;
+int global_envc;
+char* active_target;
+
+#ifdef __M2__
+int getdents(int fd, char* dirp, int count)
+{
+	asm("lea_ebx,[esp+DWORD] %12"
+	    "mov_ebx,[ebx]"
+	    "lea_ecx,[esp+DWORD] %8"
+	    "mov_ecx,[ecx]"
+	    "lea_edx,[esp+DWORD] %4"
+	    "mov_edx,[edx]"
+	    "mov_eax, %141"
+	    "int !0x80");
+}
+#endif
+
+void die(char* message)
+{
+	fputs(message, stderr);
+	fputs("\n", stderr);
+	exit(EXIT_FAILURE);
+}
+
+char* copy_string(char* source)
+{
+	char* out = calloc(strlen(source) + 1, sizeof(char));
+	strcpy(out, source);
+	return out;
+}
+
+char* copy_range(char* source, int start, int end)
+{
+	int size = end - start;
+	char* out = calloc(size + 1, sizeof(char));
+	int i = 0;
+	while(i < size)
+	{
+		out[i] = source[start + i];
+		i = i + 1;
+	}
+	out[i] = 0;
+	return out;
+}
+
+int is_space(int c)
+{
+	if(' ' == c) return 1;
+	if('\t' == c) return 1;
+	if('\n' == c) return 1;
+	if('\r' == c) return 1;
+	return 0;
+}
+
+void strip_newline(char* text)
+{
+	int i = 0;
+	while(0 != text[i])
+	{
+		if('\n' == text[i])
+		{
+			text[i] = 0;
+			return;
+		}
+		if('\r' == text[i])
+		{
+			text[i] = 0;
+			return;
+		}
+		i = i + 1;
+	}
+}
+
+struct Target* find_target(char* name)
+{
+	int i = 0;
+	struct Target* target;
+	while(i < target_count)
+	{
+		target = targets[i];
+		if(0 == strcmp(target->name, name)) return target;
+		i = i + 1;
+	}
+	return NULL;
+}
+
+struct Target* add_target(char* name)
+{
+	struct Target* target = find_target(name);
+	if(NULL != target) return target;
+	if(target_count >= MAX_TARGETS) die("too many targets");
+
+	target = calloc(1, sizeof(struct Target));
+	target->name = copy_string(name);
+	target->deps = calloc(MAX_DEPS, sizeof(char*));
+	target->commands = calloc(MAX_COMMANDS, sizeof(char*));
+	targets[target_count] = target;
+	target_count = target_count + 1;
+	return target;
+}
+
+void add_dep(struct Target* target, char* value)
+{
+	if(target->dep_count >= MAX_DEPS) die("too many dependencies");
+	target->deps[target->dep_count] = copy_string(value);
+	target->dep_count = target->dep_count + 1;
+}
+
+void add_command(struct Target* target, char* value)
+{
+	if(target->command_count >= MAX_COMMANDS) die("too many commands");
+	target->commands[target->command_count] = copy_string(value);
+	target->command_count = target->command_count + 1;
+}
+
+int parse_rule(char* text, struct Target** out)
+{
+	int i = 0;
+	int start;
+	int name_count = 0;
+	int dep_count = 0;
+	int seen_colon = 0;
+	char** names = calloc(MAX_TARGETS, sizeof(char*));
+	char** deps = calloc(MAX_DEPS, sizeof(char*));
+	struct Target* target;
+	int out_count = 0;
+	int n;
+	int d;
+
+	while(is_space(text[i])) i = i + 1;
+	if(0 == text[i]) die("target line missing target");
+
+	while(0 != text[i])
+	{
+		while(is_space(text[i])) i = i + 1;
+		if(0 == text[i]) break;
+		start = i;
+		while((0 != text[i]) && !is_space(text[i])) i = i + 1;
+		if((':' == text[start]) && ((start + 1) == i)) seen_colon = 1;
+		else if(seen_colon)
+		{
+			if(dep_count >= MAX_DEPS) die("too many dependencies");
+			deps[dep_count] = copy_range(text, start, i);
+			dep_count = dep_count + 1;
+		}
+		else
+		{
+			if(name_count >= MAX_TARGETS) die("too many targets");
+			names[name_count] = copy_range(text, start, i);
+			name_count = name_count + 1;
+		}
+	}
+
+	if(0 == name_count) die("target line missing target");
+	if(!seen_colon)
+	{
+		target = add_target(names[0]);
+		n = 1;
+		while(n < name_count)
+		{
+			add_dep(target, names[n]);
+			n = n + 1;
+		}
+		out[0] = target;
+		return 1;
+	}
+
+	n = 0;
+	while(n < name_count)
+	{
+		target = add_target(names[n]);
+		d = 0;
+		while(d < dep_count)
+		{
+			add_dep(target, deps[d]);
+			d = d + 1;
+		}
+		out[out_count] = target;
+		out_count = out_count + 1;
+		n = n + 1;
+	}
+	return out_count;
+}
+
+void read_makefile(char* filename)
+{
+	FILE* in = fopen(filename, "r");
+	char* line = calloc(MAX_LINE, sizeof(char));
+	struct Target** current = calloc(MAX_TARGETS, sizeof(struct Target*));
+	int current_count = 0;
+	int i;
+	if(NULL == in) die("unable to open make file");
+
+	while(0 != fgets(line, MAX_LINE, in))
+	{
+		if(0 == line[0]) break;
+		strip_newline(line);
+
+		if((0 == line[0]) || ('#' == line[0]))
+		{
+		}
+		else if(':' == line[0])
+		{
+			current_count = parse_rule(line + 1, current);
+		}
+		else
+		{
+			if(0 == current_count) die("recipe without target");
+			i = 0;
+			while(i < current_count)
+			{
+				add_command(current[i], line);
+				i = i + 1;
+			}
+		}
+
+		line = calloc(MAX_LINE, sizeof(char));
+	}
+	fclose(in);
+}
+
+int has_glob(char* word)
+{
+	int i = 0;
+	while(0 != word[i])
+	{
+		if('*' == word[i]) return 1;
+		if('?' == word[i]) return 1;
+		i = i + 1;
+	}
+	return 0;
+}
+
+int glob_match(char* pattern, char* name)
+{
+	if(0 == pattern[0]) return 0 == name[0];
+	if('*' == pattern[0])
+	{
+		if(glob_match(pattern + 1, name)) return 1;
+		if(0 == name[0]) return 0;
+		return glob_match(pattern, name + 1);
+	}
+	if('?' == pattern[0])
+	{
+		if(0 == name[0]) return 0;
+		return glob_match(pattern + 1, name + 1);
+	}
+	if(pattern[0] != name[0]) return 0;
+	return glob_match(pattern + 1, name + 1);
+}
+
+int read_u16(char* p)
+{
+	int lo = p[0];
+	int hi = p[1];
+	if(0 > lo) lo = lo + 256;
+	if(0 > hi) hi = hi + 256;
+	return lo + (hi * 256);
+}
+
+void split_glob_path(char* word, char** dir, char** prefix, char** pattern)
+{
+	int i = 0;
+	int last_slash = -1;
+	while(0 != word[i])
+	{
+		if('/' == word[i]) last_slash = i;
+		i = i + 1;
+	}
+
+	if(-1 == last_slash)
+	{
+		*dir = ".";
+		*prefix = "";
+		*pattern = word;
+		return;
+	}
+	if(0 == last_slash)
+	{
+		*dir = "/";
+		*prefix = "/";
+		*pattern = word + 1;
+		return;
+	}
+	*dir = copy_range(word, 0, last_slash);
+	*prefix = copy_range(word, 0, last_slash + 1);
+	*pattern = word + last_slash + 1;
+}
+
+char* join_prefix(char* prefix, char* name)
+{
+	char* out = calloc(strlen(prefix) + strlen(name) + 1, sizeof(char));
+	strcpy(out, prefix);
+	strcat(out, name);
+	return out;
+}
+
+void append_arg(struct Arg** head, struct Arg** tail, int* argc, char* value)
+{
+	struct Arg* arg;
+	if((*argc) >= (MAX_ARGS - 1)) die("too many command arguments");
+	arg = calloc(1, sizeof(struct Arg));
+	arg->value = value;
+	arg->next = NULL;
+	if(NULL == *head) *head = arg;
+	else (*tail)->next = arg;
+	*tail = arg;
+	*argc = *argc + 1;
+}
+
+char** args_to_argv(struct Arg* head)
+{
+	char** argv = calloc(MAX_ARGS, sizeof(char*));
+	int argc = 0;
+	while(NULL != head)
+	{
+		argv[argc] = head->value;
+		argc = argc + 1;
+		head = head->next;
+	}
+	argv[argc] = NULL;
+	return argv;
+}
+
+int append_glob(struct Arg** head, struct Arg** tail, int* argc, char* word)
+{
+	char* dir;
+	char* prefix;
+	char* pattern;
+#ifdef __M2__
+	char* buffer = calloc(DIRENT_BUF, sizeof(char));
+	int fd;
+	int read_count;
+	int offset;
+	int reclen;
+#else
+	DIR* d;
+	struct dirent* entry;
+#endif
+	char* name;
+	int matches = 0;
+
+	split_glob_path(word, &dir, &prefix, &pattern);
+#ifdef __M2__
+	fd = _open(dir, O_RDONLY, 0);
+	if(0 > fd) return 0;
+
+	read_count = getdents(fd, buffer, DIRENT_BUF);
+	while(0 < read_count)
+	{
+		offset = 0;
+		while(offset < read_count)
+		{
+			reclen = read_u16(buffer + offset + 8);
+			name = buffer + offset + 10;
+			if((0 != strcmp(name, ".")) && (0 != strcmp(name, "..")))
+			{
+				if(glob_match(pattern, name))
+				{
+					append_arg(head, tail, argc, join_prefix(prefix, name));
+					matches = matches + 1;
+				}
+			}
+			offset = offset + reclen;
+		}
+		read_count = getdents(fd, buffer, DIRENT_BUF);
+	}
+	close(fd);
+#else
+	d = opendir(dir);
+	if(NULL == d) return 0;
+	entry = readdir(d);
+	while(NULL != entry)
+	{
+		name = entry->d_name;
+		if((0 != strcmp(name, ".")) && (0 != strcmp(name, "..")))
+		{
+			if(glob_match(pattern, name))
+			{
+				append_arg(head, tail, argc, join_prefix(prefix, name));
+				matches = matches + 1;
+			}
+		}
+		entry = readdir(d);
+	}
+	closedir(d);
+#endif
+	return matches;
+}
+
+char* lookup_env(char* name)
+{
+	int i = 0;
+	int len = strlen(name);
+	if(NULL == global_envp) return NULL;
+	while(NULL != global_envp[i])
+	{
+		if(0 == strncmp(name, global_envp[i], len))
+		{
+			if('=' == global_envp[i][len]) return global_envp[i] + len + 1;
+		}
+		i = i + 1;
+	}
+	return NULL;
+}
+
+void init_env(char** envp)
+{
+	int i = 0;
+	global_envp = calloc(MAX_ENV, sizeof(char*));
+	while((NULL != envp[i]) && (i < (MAX_ENV - 1)))
+	{
+		global_envp[i] = envp[i];
+		i = i + 1;
+	}
+	global_envp[i] = NULL;
+	global_envc = i;
+}
+
+void set_env(char* name, char* value)
+{
+	int i = 0;
+	int len = strlen(name);
+	char* line = calloc(strlen(name) + strlen(value) + 2, sizeof(char));
+	strcpy(line, name);
+	strcat(line, "=");
+	strcat(line, value);
+
+	while(NULL != global_envp[i])
+	{
+		if(0 == strncmp(name, global_envp[i], len))
+		{
+			if('=' == global_envp[i][len])
+			{
+				global_envp[i] = line;
+				return;
+			}
+		}
+		i = i + 1;
+	}
+
+	if(global_envc >= (MAX_ENV - 1)) die("too many environment variables");
+	global_envp[global_envc] = line;
+	global_envc = global_envc + 1;
+	global_envp[global_envc] = NULL;
+}
+
+int var_char(int c)
+{
+	if(('a' <= c) && (c <= 'z')) return 1;
+	if(('A' <= c) && (c <= 'Z')) return 1;
+	if(('0' <= c) && (c <= '9')) return 1;
+	if('_' == c) return 1;
+	return 0;
+}
+
+char* expand_vars(char* word)
+{
+	char* out = calloc(MAX_WORD, sizeof(char));
+	char* name;
+	char* value;
+	int i = 0;
+	int j = 0;
+	int start;
+	int end;
+	int k;
+
+	while(0 != word[i])
+	{
+		if('$' == word[i])
+		{
+			i = i + 1;
+			if('{' == word[i])
+			{
+				i = i + 1;
+				start = i;
+				while((0 != word[i]) && ('}' != word[i])) i = i + 1;
+				end = i;
+				if('}' == word[i]) i = i + 1;
+			}
+			else if('@' == word[i])
+			{
+				i = i + 1;
+				if(NULL != active_target)
+				{
+					k = 0;
+					while(0 != active_target[k])
+					{
+						out[j] = active_target[k];
+						j = j + 1;
+						k = k + 1;
+					}
+				}
+				continue;
+			}
+			else
+			{
+				start = i;
+				while(var_char(word[i])) i = i + 1;
+				end = i;
+			}
+
+			if(end == start)
+			{
+				out[j] = '$';
+				j = j + 1;
+			}
+			else
+			{
+				name = copy_range(word, start, end);
+				value = lookup_env(name);
+				if(NULL != value)
+				{
+					k = 0;
+					while(0 != value[k])
+					{
+						out[j] = value[k];
+						j = j + 1;
+						k = k + 1;
+					}
+				}
+			}
+		}
+		else
+		{
+			out[j] = word[i];
+			j = j + 1;
+			i = i + 1;
+		}
+	}
+	out[j] = 0;
+	return out;
+}
+
+char** split_command(char* line)
+{
+	struct Arg* head = NULL;
+	struct Arg* tail = NULL;
+	int argc = 0;
+	int i = 0;
+	int start;
+	char* word;
+	int matches;
+	while(0 != line[i])
+	{
+		while(is_space(line[i])) i = i + 1;
+		if(0 == line[i]) break;
+		start = i;
+		while((0 != line[i]) && !is_space(line[i])) i = i + 1;
+		word = copy_range(line, start, i);
+		word = expand_vars(word);
+		if(has_glob(word))
+		{
+			matches = append_glob(&head, &tail, &argc, word);
+			if(0 == matches) append_arg(&head, &tail, &argc, word);
+		}
+		else append_arg(&head, &tail, &argc, word);
+	}
+	return args_to_argv(head);
+}
+
+int contains_slash(char* word)
+{
+	int i = 0;
+	while(0 != word[i])
+	{
+		if('/' == word[i]) return 1;
+		i = i + 1;
+	}
+	return 0;
+}
+
+char* path_join(char* dir, char* name)
+{
+	char* out = calloc(strlen(dir) + strlen(name) + 2, sizeof(char));
+	strcpy(out, dir);
+	strcat(out, "/");
+	strcat(out, name);
+	return out;
+}
+
+void exec_with_path(char** argv)
+{
+	char* path;
+	char* p;
+	int start;
+	int i;
+	char* candidate;
+
+	if(contains_slash(argv[0]))
+	{
+		execve(argv[0], argv, global_envp);
+		exit(127);
+	}
+
+	path = lookup_env("PATH");
+	if(NULL == path) path = "/bin:/usr/bin";
+	i = 0;
+	while(0 != path[i])
+	{
+		start = i;
+		while((0 != path[i]) && (':' != path[i])) i = i + 1;
+		p = copy_range(path, start, i);
+		candidate = path_join(p, argv[0]);
+		execve(candidate, argv, global_envp);
+		if(':' == path[i]) i = i + 1;
+	}
+	execve(argv[0], argv, global_envp);
+	exit(127);
+}
+
+void run_command(char* line)
+{
+	char** argv;
+	int pid;
+	int status;
+
+	fputs("+> ", stderr);
+	fputs(line, stderr);
+	fputs("\n", stderr);
+
+	argv = split_command(line);
+	if(NULL == argv[0]) return;
+
+	if(0 == strcmp(argv[0], "cd"))
+	{
+		if(NULL == argv[1]) die("cd requires a directory");
+		if(0 != chdir(argv[1])) die("cd failed");
+		return;
+	}
+
+	if(0 == strcmp(argv[0], "export"))
+	{
+		if(NULL == argv[1]) die("export requires a variable");
+		if(NULL == argv[2]) die("export requires a value");
+		set_env(argv[1], argv[2]);
+		return;
+	}
+
+	pid = fork();
+	if(0 == pid)
+	{
+		exec_with_path(argv);
+	}
+	if(0 > pid) die("fork failed");
+	waitpid(pid, &status, 0);
+	if(0 != status) die("command failed");
+}
+
+void build_target(struct Target* target)
+{
+	int i;
+	struct Target* dep_target;
+	if(NULL == target) die("unknown target");
+	if(MARK_DONE == target->mark) return;
+	if(MARK_TEMP == target->mark) die("dependency cycle");
+
+	target->mark = MARK_TEMP;
+	i = 0;
+	while(i < target->dep_count)
+	{
+		dep_target = find_target(target->deps[i]);
+		if(NULL != dep_target) build_target(dep_target);
+		i = i + 1;
+	}
+
+	i = 0;
+	while(i < target->command_count)
+	{
+		active_target = target->name;
+		run_command(target->commands[i]);
+		i = i + 1;
+	}
+	target->mark = MARK_DONE;
+}
+
+void usage(void)
+{
+	fputs("usage: bake [-f FILE] [TARGET]\n", stderr);
+	exit(EXIT_FAILURE);
+}
+
+int main(int argc, char** argv, char** envp)
+{
+	char* filename = "build.bake";
+	char* target_name = NULL;
+	struct Target* default_target;
+	int i = 1;
+	init_env(envp);
+	targets = calloc(MAX_TARGETS, sizeof(struct Target*));
+	target_count = 0;
+
+	while(i < argc)
+	{
+		if((0 == strcmp(argv[i], "-f")) || (0 == strcmp(argv[i], "--file")))
+		{
+			if((i + 1) >= argc) usage();
+			filename = argv[i + 1];
+			i = i + 2;
+		}
+		else
+		{
+			target_name = argv[i];
+			i = i + 1;
+		}
+	}
+
+	read_makefile(filename);
+	if(NULL == target_name)
+	{
+		if(0 == target_count) die("no targets");
+		default_target = targets[0];
+		target_name = default_target->name;
+	}
+	build_target(find_target(target_name));
+	return EXIT_SUCCESS;
+}

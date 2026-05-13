@@ -17,7 +17,7 @@
 # Prevent rebuilding
 PACKAGE = mescc-tools
 
-all: M1 hex2 get_machine blood-elf kaem catm
+all: M1 hex2 get_machine blood-elf kaem bake catm
 .NOTPARALLEL:
 CC=gcc
 CFLAGS:=$(CFLAGS) -D_GNU_SOURCE -std=c99 -ggdb -fno-common
@@ -59,13 +59,20 @@ kaem: bin/kaem
 bin/kaem: Kaem/kaem.c Kaem/variable.c Kaem/kaem_globals.c M2libc/bootstrappable.c | bin
 	$(MAKE) -C Kaem kaem
 
+bake: bin/bake
+
+bin/bake: bake.c M2libc/bootstrappable.c | bin
+	$(CC) $(CFLAGS) bake.c \
+	M2libc/bootstrappable.c \
+	-o $@
+
 catm: bin/catm
 
 bin/catm: catm.c | bin
 	$(CC) $(CFLAGS) catm.c -o $@
 
 # Clean up after ourselves
-.PHONY: clean M1 hex2 get_machine blood-elf kaem catm
+.PHONY: clean M1 hex2 get_machine blood-elf kaem bake catm
 clean:
 	rm -rf bin/ test/results/
 	./test/test1/cleanup.sh
@@ -164,7 +171,7 @@ DESTDIR:=
 PREFIX:=/usr/local
 bindir:=$(DESTDIR)$(PREFIX)/bin
 .PHONY: install
-install: bin/M1 bin/hex2 bin/blood-elf bin/kaem bin/get_machine
+install: bin/M1 bin/hex2 bin/blood-elf bin/kaem bin/bake bin/get_machine
 	mkdir -p $(bindir)
 	cp $^ $(bindir)
 
