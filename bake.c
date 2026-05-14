@@ -449,6 +449,41 @@ char* path_join(char* dir, char* name)
 	return out;
 }
 
+char* conditional_command(char* line)
+{
+	int want_match;
+	int matched;
+	int i;
+	int start;
+	char* name;
+	char* expected;
+	char* actual;
+
+	if(('?' != line[0]) && ('!' != line[0])) return line;
+	want_match = '?' == line[0];
+
+	i = 1;
+	while(is_space(line[i])) i = i + 1;
+	if(0 == line[i]) die("conditional missing variable");
+	start = i;
+	while((0 != line[i]) && !is_space(line[i])) i = i + 1;
+	name = copy_range(line, start, i);
+
+	while(is_space(line[i])) i = i + 1;
+	if(0 == line[i]) die("conditional missing value");
+	start = i;
+	while((0 != line[i]) && !is_space(line[i])) i = i + 1;
+	expected = expand_vars(copy_range(line, start, i));
+
+	actual = lookup_env(name);
+	matched = (NULL != actual) && (0 == strcmp(actual, expected));
+	if(want_match != matched) return NULL;
+
+	while(is_space(line[i])) i = i + 1;
+	if(0 == line[i]) die("conditional missing command");
+	return line + i;
+}
+
 void exec_with_path(char** argv)
 {
 	char* path;
@@ -484,6 +519,9 @@ void run_command(char* line)
 	char** argv;
 	int pid;
 	int status;
+
+	line = conditional_command(line);
+	if(NULL == line) return;
 
 	fputs("+> ", stderr);
 	fputs(line, stderr);
