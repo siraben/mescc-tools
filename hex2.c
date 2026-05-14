@@ -25,6 +25,15 @@ void second_pass(struct input_files* input);
 void WordFirstPass(struct input_files* input);
 void WordSecondPass(struct input_files* input);
 
+struct input_files* add_input_file(struct input_files* input, char* name)
+{
+	struct input_files* temp = calloc(1, sizeof(struct input_files));
+	require(NULL != temp, "failed to allocate file for processing\n");
+	temp->filename = name;
+	temp->next = input;
+	return temp;
+}
+
 /* Standard C main program */
 int main(int argc, char **argv)
 {
@@ -44,7 +53,6 @@ int main(int argc, char **argv)
 	scratch = calloc(max_string + 1, sizeof(char));
 	require(NULL != scratch, "failed to allocate our scratch buffer\n");
 	char* arch;
-	struct input_files* temp;
 
 	int option_index = 1;
 	while(option_index <= argc)
@@ -101,7 +109,7 @@ int main(int argc, char **argv)
 		{
 			fputs("Usage: ", stderr);
 			fputs(argv[0], stderr);
-			fputs(" --file FILENAME1 {-f FILENAME2} (--big-endian|--little-endian)", stderr);
+			fputs(" [options] FILENAME1 {FILENAME2}", stderr);
 			fputs(" [--base-address 0x12345] [--architecture name]\nArchitecture:", stderr);
 			fputs(" knight-native, knight-posix, x86, amd64, armv7l, aarch64, riscv32 and riscv64\n", stderr);
 			fputs("To leverage octal or binary input: --octal, --binary\n", stderr);
@@ -109,11 +117,7 @@ int main(int argc, char **argv)
 		}
 		else if(match(argv[option_index], "-f") || match(argv[option_index], "--file"))
 		{
-			temp = calloc(1, sizeof(struct input_files));
-			require(NULL != temp, "failed to allocate file for processing\n");
-			temp->filename = argv[option_index + 1];
-			temp->next = input;
-			input = temp;
+			input = add_input_file(input, argv[option_index + 1]);
 			option_index = option_index + 2;
 		}
 		else if(match(argv[option_index], "-o") || match(argv[option_index], "--output"))
@@ -142,8 +146,8 @@ int main(int argc, char **argv)
 		}
 		else
 		{
-			fputs("Unknown option\n", stderr);
-			exit(EXIT_FAILURE);
+			input = add_input_file(input, argv[option_index]);
+			option_index = option_index + 1;
 		}
 	}
 

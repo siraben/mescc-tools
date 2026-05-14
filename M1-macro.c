@@ -91,6 +91,25 @@ int blob_count;
 char* SCRATCH;
 struct blob** hash_table;
 
+struct Token* Tokenize_Line(struct Token* head, char* filename);
+
+void read_input_file(char* name)
+{
+	source_file = fopen(name, "r");
+
+	if(NULL == source_file)
+	{
+		fputs("The file: ", stderr);
+		fputs(name, stderr);
+		fputs(" can not be opened!\n", stderr);
+		exit(EXIT_FAILURE);
+	}
+
+	token_list = Tokenize_Line(token_list, name);
+
+	fclose(source_file);
+}
+
 void line_error(char* filename, int linenumber)
 {
 	fputs(filename, stderr);
@@ -860,7 +879,7 @@ int main(int argc, char **argv)
 		{
 			fputs("Usage: ", stderr);
 			fputs(argv[0], stderr);
-			fputs(" --file FILENAME1 {-f FILENAME2} (--big-endian|--little-endian) ", stderr);
+			fputs(" [options] FILENAME1 {FILENAME2}\n", stderr);
 			fputs("[--architecture name]\nArchitectures: knight-native, knight-posix, x86, amd64, armv7, riscv32 and riscv64\n", stderr);
 			fputs("To leverage octal or binary output: --octal, --binary\n", stderr);
 			exit(EXIT_SUCCESS);
@@ -868,20 +887,7 @@ int main(int argc, char **argv)
 		else if(match(argv[option_index], "-f") || match(argv[option_index], "--file"))
 		{
 			filename = argv[option_index + 1];
-			source_file = fopen(filename, "r");
-
-			if(NULL == source_file)
-			{
-				fputs("The file: ", stderr);
-				fputs(argv[option_index + 1], stderr);
-				fputs(" can not be opened!\n", stderr);
-				exit(EXIT_FAILURE);
-			}
-
-			token_list = Tokenize_Line(token_list, filename);
-
-			fclose(source_file);
-
+			read_input_file(filename);
 			option_index = option_index + 2;
 		}
 		else if(match(argv[option_index], "-o") || match(argv[option_index], "--output"))
@@ -909,8 +915,8 @@ int main(int argc, char **argv)
 		}
 		else
 		{
-			fputs("Unknown option\n", stderr);
-			exit(EXIT_FAILURE);
+			read_input_file(argv[option_index]);
+			option_index = option_index + 1;
 		}
 	}
 

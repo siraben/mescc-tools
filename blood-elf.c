@@ -420,6 +420,14 @@ void setup_strings(int ByteMode)
 	twentyfour_32 = setup_string(24, 4, ByteMode);
 }
 
+struct entry* add_input_file(struct entry* input, char* name)
+{
+	struct entry* temp = calloc(1, sizeof(struct entry));
+	temp->name = name;
+	temp->next = input;
+	return temp;
+}
+
 /* Standard C main program */
 int main(int argc, char **argv)
 {
@@ -433,7 +441,6 @@ int main(int argc, char **argv)
 	BigEndian = TRUE;
 	int ByteMode = HEX;
 	int set = FALSE;
-	struct entry* temp;
 	struct entry* head;
 
 	int option_index = 1;
@@ -447,7 +454,7 @@ int main(int argc, char **argv)
 		{
 			fputs("Usage: ", stderr);
 			fputs(argv[0], stderr);
-			fputs(" --file FILENAME1 {--file FILENAME2} --output FILENAME\n", stderr);
+			fputs(" [options] FILENAME1 {FILENAME2} --output FILENAME\n", stderr);
 			exit(EXIT_SUCCESS);
 		}
 		else if(match(argv[option_index], "--64"))
@@ -457,10 +464,7 @@ int main(int argc, char **argv)
 		}
 		else if(match(argv[option_index], "-f") || match(argv[option_index], "--file"))
 		{
-			temp = calloc(1, sizeof(struct entry));
-			temp->name = argv[option_index + 1];
-			temp->next = input;
-			input = temp;
+			input = add_input_file(input, argv[option_index + 1]);
 			option_index = option_index + 2;
 		}
 		else if(match(argv[option_index], "-o") || match(argv[option_index], "--output"))
@@ -523,8 +527,8 @@ int main(int argc, char **argv)
 		}
 		else
 		{
-			fputs("Unknown option\n", stderr);
-			exit(EXIT_FAILURE);
+			input = add_input_file(input, argv[option_index]);
+			option_index = option_index + 1;
 		}
 	}
 

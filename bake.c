@@ -15,13 +15,13 @@
 #include <sys/wait.h>
 #endif
 
-#define MAX_LINE 4096
+#define MAX_LINE 8192
 #define MAX_ARGS 512
-#define MAX_TARGETS 256
-#define MAX_DEPS 64
+#define MAX_TARGETS 1024
+#define MAX_DEPS 512
 #define MAX_COMMANDS 128
 #define MAX_ENV 512
-#define MAX_WORD 4096
+#define MAX_WORD 16384
 
 #define MARK_NONE 0
 #define MARK_TEMP 1
@@ -42,10 +42,17 @@ struct Arg {
 };
 
 struct Target** targets;
+struct Target** patterns;
 int target_count;
+int pattern_count;
 char** global_envp;
 int global_envc;
 char* active_target;
+char* active_first_dep;
+
+char* expand_vars(char* word);
+char* expand_vars_depth(char* word, int depth);
+void set_env(char* name, char* value);
 
 void die(char* message)
 {
@@ -131,6 +138,31 @@ struct Target* add_target(char* name)
 	return target;
 }
 
+int contains_percent(char* name)
+{
+	int i = 0;
+	while(0 != name[i])
+	{
+		if('%' == name[i]) return 1;
+		i = i + 1;
+	}
+	return 0;
+}
+
+struct Target* add_pattern(char* name)
+{
+	struct Target* target;
+	if(pattern_count >= MAX_TARGETS) die("too many pattern rules");
+
+	target = calloc(1, sizeof(struct Target));
+	target->name = copy_string(name);
+	target->deps = calloc(MAX_DEPS, sizeof(char*));
+	target->commands = calloc(MAX_COMMANDS, sizeof(char*));
+	patterns[pattern_count] = target;
+	pattern_count = pattern_count + 1;
+	return target;
+}
+
 void add_dep(struct Target* target, char* value)
 {
 	if(target->dep_count >= MAX_DEPS) die("too many dependencies");
@@ -147,6 +179,7 @@ void add_command(struct Target* target, char* value)
 
 int parse_rule(char* text, struct Target** out)
 {
+	char* expanded = expand_vars(text);
 	int i = 0;
 	int start;
 	int name_count = 0;
@@ -159,6 +192,7 @@ int parse_rule(char* text, struct Target** out)
 	int n;
 	int d;
 
+	text = expanded;
 	while(is_space(text[i])) i = i + 1;
 	if(0 == text[i]) die("target line missing target");
 
@@ -186,7 +220,8 @@ int parse_rule(char* text, struct Target** out)
 	if(0 == name_count) die("target line missing target");
 	if(!seen_colon)
 	{
-		target = add_target(names[0]);
+		if(contains_percent(names[0])) target = add_pattern(names[0]);
+		else target = add_target(names[0]);
 		n = 1;
 		while(n < name_count)
 		{
@@ -200,7 +235,8 @@ int parse_rule(char* text, struct Target** out)
 	n = 0;
 	while(n < name_count)
 	{
-		target = add_target(names[n]);
+		if(contains_percent(names[n])) target = add_pattern(names[n]);
+		else target = add_target(names[n]);
 		d = 0;
 		while(d < dep_count)
 		{
@@ -212,6 +248,24 @@ int parse_rule(char* text, struct Target** out)
 		n = n + 1;
 	}
 	return out_count;
+}
+
+void parse_assignment(char* line)
+{
+	int i = 1;
+	int start;
+	char* name;
+	char* value;
+
+	while(is_space(line[i])) i = i + 1;
+	if(0 == line[i]) die("assignment missing variable");
+	start = i;
+	while((0 != line[i]) && !is_space(line[i])) i = i + 1;
+	name = copy_range(line, start, i);
+
+	while(is_space(line[i])) i = i + 1;
+	value = line + i;
+	set_env(name, value);
 }
 
 void read_makefile(char* filename)
@@ -230,6 +284,10 @@ void read_makefile(char* filename)
 
 		if((0 == line[0]) || ('#' == line[0]))
 		{
+		}
+		else if('=' == line[0])
+		{
+			parse_assignment(line);
 		}
 		else if(':' == line[0])
 		{
@@ -294,6 +352,100 @@ char* lookup_env(char* name)
 	return NULL;
 }
 
+char* replace_percent(char* pattern, char* stem)
+{
+	char* out = calloc(MAX_WORD, sizeof(char));
+	int i = 0;
+	int j = 0;
+	int k;
+	while(0 != pattern[i])
+	{
+		if('%' == pattern[i])
+		{
+			k = 0;
+			while(0 != stem[k])
+			{
+				out[j] = stem[k];
+				j = j + 1;
+				k = k + 1;
+			}
+			i = i + 1;
+		}
+		else
+		{
+			out[j] = pattern[i];
+			j = j + 1;
+			i = i + 1;
+		}
+	}
+	out[j] = 0;
+	return out;
+}
+
+char* pattern_stem(char* pattern, char* name)
+{
+	int percent = 0;
+	int prefix_len;
+	int suffix_len;
+	int name_len = strlen(name);
+	int pattern_len = strlen(pattern);
+	int i = 0;
+	while((0 != pattern[percent]) && ('%' != pattern[percent])) percent = percent + 1;
+	if(0 == pattern[percent]) return NULL;
+
+	prefix_len = percent;
+	suffix_len = pattern_len - percent - 1;
+	if(name_len < (prefix_len + suffix_len)) return NULL;
+	i = 0;
+	while(i < prefix_len)
+	{
+		if(pattern[i] != name[i]) return NULL;
+		i = i + 1;
+	}
+	i = 0;
+	while(i < suffix_len)
+	{
+		if(pattern[percent + 1 + i] != name[name_len - suffix_len + i]) return NULL;
+		i = i + 1;
+	}
+	return copy_range(name, prefix_len, name_len - suffix_len);
+}
+
+struct Target* instantiate_pattern(char* name)
+{
+	int i = 0;
+	int d;
+	int c;
+	char* stem;
+	struct Target* pattern;
+	struct Target* target;
+	while(i < pattern_count)
+	{
+		pattern = patterns[i];
+		stem = pattern_stem(pattern->name, name);
+		if(NULL != stem)
+		{
+			target = add_target(name);
+			target->mark = MARK_NONE;
+			d = 0;
+			while(d < pattern->dep_count)
+			{
+				add_dep(target, replace_percent(pattern->deps[d], stem));
+				d = d + 1;
+			}
+			c = 0;
+			while(c < pattern->command_count)
+			{
+				add_command(target, pattern->commands[c]);
+				c = c + 1;
+			}
+			return target;
+		}
+		i = i + 1;
+	}
+	return NULL;
+}
+
 void init_env(char** envp)
 {
 	int i = 0;
@@ -335,15 +487,16 @@ void set_env(char* name, char* value)
 	global_envp[global_envc] = NULL;
 }
 
-char* expand_vars(char* word)
+char* expand_vars_depth(char* word, int depth)
 {
 	char* out = calloc(MAX_WORD, sizeof(char));
 	char* name;
 	char* value;
+	char* expanded;
 	int i = 0;
 	int j = 0;
-	int start;
-	int end;
+	int start = 0;
+	int end = 0;
 	int k;
 
 	while(0 != word[i])
@@ -374,6 +527,21 @@ char* expand_vars(char* word)
 				}
 				continue;
 			}
+			else if('<' == word[i])
+			{
+				i = i + 1;
+				if(NULL != active_first_dep)
+				{
+					k = 0;
+					while(0 != active_first_dep[k])
+					{
+						out[j] = active_first_dep[k];
+						j = j + 1;
+						k = k + 1;
+					}
+				}
+				continue;
+			}
 			else
 				die("unsupported variable syntax");
 
@@ -387,10 +555,12 @@ char* expand_vars(char* word)
 				value = lookup_env(name);
 				if(NULL != value)
 				{
+					if(8 < depth) die("variable expansion too deep");
+					expanded = expand_vars_depth(value, depth + 1);
 					k = 0;
-					while(0 != value[k])
+					while(0 != expanded[k])
 					{
-						out[j] = value[k];
+						out[j] = expanded[k];
 						j = j + 1;
 						k = k + 1;
 					}
@@ -408,6 +578,11 @@ char* expand_vars(char* word)
 	return out;
 }
 
+char* expand_vars(char* word)
+{
+	return expand_vars_depth(word, 0);
+}
+
 char** split_command(char* line)
 {
 	struct Arg* head = NULL;
@@ -416,6 +591,7 @@ char** split_command(char* line)
 	int i = 0;
 	int start;
 	char* word;
+	char* expanded;
 	while(0 != line[i])
 	{
 		while(is_space(line[i])) i = i + 1;
@@ -423,10 +599,41 @@ char** split_command(char* line)
 		start = i;
 		while((0 != line[i]) && !is_space(line[i])) i = i + 1;
 		word = copy_range(line, start, i);
-		word = expand_vars(word);
-		append_arg(&head, &tail, &argc, word);
+		expanded = expand_vars(word);
+		if(0 == expanded[0])
+		{
+			append_arg(&head, &tail, &argc, expanded);
+		}
+		else
+		{
+			int j = 0;
+			int word_start;
+			while(0 != expanded[j])
+			{
+				while(is_space(expanded[j])) j = j + 1;
+				if(0 == expanded[j]) break;
+				word_start = j;
+				while((0 != expanded[j]) && !is_space(expanded[j])) j = j + 1;
+				append_arg(&head, &tail, &argc, copy_range(expanded, word_start, j));
+			}
+		}
 	}
 	return args_to_argv(head);
+}
+
+char* command_word_tail(char* line, int word_number)
+{
+	int i = 0;
+	int word = 0;
+	while(0 != line[i])
+	{
+		while(is_space(line[i])) i = i + 1;
+		if(0 == line[i]) return NULL;
+		word = word + 1;
+		if(word == word_number) return line + i;
+		while((0 != line[i]) && !is_space(line[i])) i = i + 1;
+	}
+	return NULL;
 }
 
 int contains_slash(char* word)
@@ -541,7 +748,7 @@ void run_command(char* line)
 	{
 		if(NULL == argv[1]) die("export requires a variable");
 		if(NULL == argv[2]) die("export requires a value");
-		set_env(argv[1], argv[2]);
+		set_env(argv[1], expand_vars(command_word_tail(line, 3)));
 		return;
 	}
 
@@ -559,6 +766,8 @@ void build_target(struct Target* target)
 {
 	int i;
 	struct Target* dep_target;
+	char* previous_target;
+	char* previous_first_dep;
 	if(NULL == target) die("unknown target");
 	if(MARK_DONE == target->mark) return;
 	if(MARK_TEMP == target->mark) die("dependency cycle");
@@ -568,17 +777,24 @@ void build_target(struct Target* target)
 	while(i < target->dep_count)
 	{
 		dep_target = find_target(target->deps[i]);
+		if(NULL == dep_target) dep_target = instantiate_pattern(target->deps[i]);
 		if(NULL != dep_target) build_target(dep_target);
 		i = i + 1;
 	}
 
+	previous_target = active_target;
+	previous_first_dep = active_first_dep;
 	i = 0;
 	while(i < target->command_count)
 	{
 		active_target = target->name;
+		if(0 < target->dep_count) active_first_dep = target->deps[0];
+		else active_first_dep = NULL;
 		run_command(target->commands[i]);
 		i = i + 1;
 	}
+	active_target = previous_target;
+	active_first_dep = previous_first_dep;
 	target->mark = MARK_DONE;
 }
 
@@ -596,7 +812,9 @@ int main(int argc, char** argv, char** envp)
 	int i = 1;
 	init_env(envp);
 	targets = calloc(MAX_TARGETS, sizeof(struct Target*));
+	patterns = calloc(MAX_TARGETS, sizeof(struct Target*));
 	target_count = 0;
+	pattern_count = 0;
 
 	while(i < argc)
 	{
