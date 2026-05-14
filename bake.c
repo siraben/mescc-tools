@@ -268,6 +268,37 @@ void parse_assignment(char* line)
 	set_env(name, value);
 }
 
+int is_assignment_name_char(int c)
+{
+	if(('a' <= c) && ('z' >= c)) return 1;
+	if(('A' <= c) && ('Z' >= c)) return 1;
+	if(('0' <= c) && ('9' >= c)) return 1;
+	if('_' == c) return 1;
+	return 0;
+}
+
+int parse_shell_assignment(char* line)
+{
+	int i = 0;
+	char* name;
+	char* value;
+	int len;
+	if((0 == line[0]) || (!is_assignment_name_char(line[0]))) return 0;
+	while(is_assignment_name_char(line[i])) i = i + 1;
+	if('=' != line[i]) return 0;
+
+	name = copy_range(line, 0, i);
+	value = line + i + 1;
+	len = strlen(value);
+	if((len > 1) && ('"' == value[0]) && ('"' == value[len - 1]))
+	{
+		value[len - 1] = 0;
+		value = value + 1;
+	}
+	set_env(name, value);
+	return 1;
+}
+
 void read_makefile(char* filename)
 {
 	FILE* in = fopen(filename, "r");
@@ -288,6 +319,9 @@ void read_makefile(char* filename)
 		else if('=' == line[0])
 		{
 			parse_assignment(line);
+		}
+		else if(parse_shell_assignment(line))
+		{
 		}
 		else if(':' == line[0])
 		{
