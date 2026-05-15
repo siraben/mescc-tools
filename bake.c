@@ -617,6 +617,26 @@ char* expand_vars(char* word)
 	return expand_vars_depth(word, 0);
 }
 
+int is_missing_single_var(char* word)
+{
+	int i = 0;
+	int start;
+	int end;
+	char* name;
+	if('$' != word[0]) return 0;
+	if('{' != word[1]) return 0;
+	i = 2;
+	start = i;
+	while((0 != word[i]) && ('}' != word[i])) i = i + 1;
+	end = i;
+	if('}' != word[i]) return 0;
+	if(0 != word[i + 1]) return 0;
+	if(end == start) die("empty variable name");
+	name = copy_range(word, start, end);
+	if(NULL == lookup_env(name)) return 1;
+	return 0;
+}
+
 char** split_command(char* line)
 {
 	struct Arg* head = NULL;
@@ -636,7 +656,8 @@ char** split_command(char* line)
 		expanded = expand_vars(word);
 		if(0 == expanded[0])
 		{
-			append_arg(&head, &tail, &argc, expanded);
+			if(is_missing_single_var(word))
+				append_arg(&head, &tail, &argc, expanded);
 		}
 		else
 		{

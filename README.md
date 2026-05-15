@@ -34,10 +34,6 @@ A tool for marking files as executable, for systems that don't have chmod
 # get_machine
 A tool for identifying what hardware architecture you are running on
 
-# kaem
-A minimal shell script build tool that can be used for running shell scripts on
-systems that lack any shells.
-
 # hex2_linker
 The trivially bootstrappable linker that is designed to be introspectable by
 humans and should you so desire assemble hex programs that you write.
