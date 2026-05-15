@@ -49,10 +49,12 @@ char** global_envp;
 int global_envc;
 char* active_target;
 char* active_first_dep;
+char* active_each;
 
 char* expand_vars(char* word);
 char* expand_vars_depth(char* word, int depth);
 void set_env(char* name, char* value);
+void run_command(char* line);
 
 void die(char* message)
 {
@@ -561,6 +563,21 @@ char* expand_vars_depth(char* word, int depth)
 				}
 				continue;
 			}
+			else if('%' == word[i])
+			{
+				i = i + 1;
+				if(NULL != active_each)
+				{
+					k = 0;
+					while(0 != active_each[k])
+					{
+						out[j] = active_each[k];
+						j = j + 1;
+						k = k + 1;
+					}
+				}
+				continue;
+			}
 			else if('<' == word[i])
 			{
 				i = i + 1;
@@ -746,6 +763,43 @@ char* conditional_command(char* line)
 	return line + i;
 }
 
+void run_each(char* line)
+{
+	int i = 4;
+	int start;
+	char* name;
+	char* value;
+	char* command;
+	char* previous_each;
+	char* item;
+
+	while(is_space(line[i])) i = i + 1;
+	if(0 == line[i]) die("each missing variable");
+	start = i;
+	while((0 != line[i]) && !is_space(line[i])) i = i + 1;
+	name = copy_range(line, start, i);
+	value = lookup_env(name);
+	if(NULL == value) die("each unknown variable");
+
+	while(is_space(line[i])) i = i + 1;
+	if(0 == line[i]) die("each missing command");
+	command = line + i;
+
+	previous_each = active_each;
+	i = 0;
+	while(0 != value[i])
+	{
+		while(is_space(value[i])) i = i + 1;
+		if(0 == value[i]) break;
+		start = i;
+		while((0 != value[i]) && !is_space(value[i])) i = i + 1;
+		item = expand_vars(copy_range(value, start, i));
+		active_each = item;
+		run_command(command);
+	}
+	active_each = previous_each;
+}
+
 void exec_with_path(char** argv)
 {
 	char* path;
@@ -784,6 +838,12 @@ void run_command(char* line)
 
 	line = conditional_command(line);
 	if(NULL == line) return;
+
+	if((0 == strncmp(line, "each", 4)) && is_space(line[4]))
+	{
+		run_each(line);
+		return;
+	}
 
 	fputs("+> ", stderr);
 	fputs(line, stderr);
