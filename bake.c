@@ -204,7 +204,11 @@ int parse_rule(char* text, struct Target** out)
 		if(0 == text[i]) break;
 		start = i;
 		while((0 != text[i]) && !is_space(text[i])) i = i + 1;
-		if((':' == text[start]) && ((start + 1) == i)) seen_colon = 1;
+		if((':' == text[start]) && ((start + 1) == i))
+		{
+			if(seen_colon) die("duplicate colon in target line");
+			seen_colon = 1;
+		}
 		else if(seen_colon)
 		{
 			if(dep_count >= MAX_DEPS) die("too many dependencies");
@@ -279,13 +283,21 @@ int is_assignment_name_char(int c)
 	return 0;
 }
 
+int is_assignment_name_start(int c)
+{
+	if(('a' <= c) && ('z' >= c)) return 1;
+	if(('A' <= c) && ('Z' >= c)) return 1;
+	if('_' == c) return 1;
+	return 0;
+}
+
 int parse_shell_assignment(char* line)
 {
 	int i = 0;
 	char* name;
 	char* value;
 	int len;
-	if((0 == line[0]) || (!is_assignment_name_char(line[0]))) return 0;
+	if((0 == line[0]) || (!is_assignment_name_start(line[0]))) return 0;
 	while(is_assignment_name_char(line[i])) i = i + 1;
 	if('=' != line[i]) return 0;
 
@@ -308,11 +320,18 @@ void read_makefile(char* filename)
 	struct Target** current = calloc(MAX_TARGETS, sizeof(struct Target*));
 	int current_count = 0;
 	int i;
+	int len;
 	if(NULL == in) die("unable to open make file");
 
 	while(0 != fgets(line, MAX_LINE, in))
 	{
 		if(0 == line[0]) break;
+		len = strlen(line);
+		if((MAX_LINE - 1) == len)
+		{
+			if(('\n' != line[len - 1]) && ('\r' != line[len - 1]))
+				die("line too long");
+		}
 		strip_newline(line);
 
 		if((0 == line[0]) || ('#' == line[0]))
@@ -322,7 +341,7 @@ void read_makefile(char* filename)
 		{
 			parse_assignment(line);
 		}
-		else if(parse_shell_assignment(line))
+		else if((0 == current_count) && parse_shell_assignment(line))
 		{
 		}
 		else if(':' == line[0])
@@ -907,6 +926,8 @@ int main(int argc, char** argv, char** envp)
 {
 	char* filename = "build.bake";
 	char* target_name = NULL;
+	char** target_names = calloc(MAX_TARGETS, sizeof(char*));
+	int target_name_count = 0;
 	struct Target* default_target;
 	int i = 1;
 	init_env(envp);
@@ -925,18 +946,29 @@ int main(int argc, char** argv, char** envp)
 		}
 		else
 		{
-			target_name = argv[i];
+			if(target_name_count >= MAX_TARGETS) die("too many command line targets");
+			target_names[target_name_count] = argv[i];
+			target_name_count = target_name_count + 1;
 			i = i + 1;
 		}
 	}
 
 	read_makefile(filename);
-	if(NULL == target_name)
+	if(0 == target_name_count)
 	{
 		if(0 == target_count) die("no targets");
 		default_target = targets[0];
 		target_name = default_target->name;
+		build_target(find_target(target_name));
 	}
-	build_target(find_target(target_name));
+	else
+	{
+		i = 0;
+		while(i < target_name_count)
+		{
+			build_target(find_target(target_names[i]));
+			i = i + 1;
+		}
+	}
 	return EXIT_SUCCESS;
 }

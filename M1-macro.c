@@ -489,6 +489,62 @@ char* pad_nulls(int size, char* nil)
 	return s;
 }
 
+int is_digit_for_base(int c, int base)
+{
+	if((2 == base) && in_set(c, "01")) return TRUE;
+	if((8 == base) && in_set(c, "01234567")) return TRUE;
+	if((10 == base) && in_set(c, "0123456789")) return TRUE;
+	if((16 == base) && in_set(c, "0123456789ABCDEFabcdef")) return TRUE;
+	return FALSE;
+}
+
+int valid_number(char* s)
+{
+	int i = 0;
+	int base = 10;
+	int digits = 0;
+	int negative = FALSE;
+	if('-' == s[i])
+	{
+		negative = TRUE;
+		i = i + 1;
+	}
+	if(0 == s[i]) return FALSE;
+	if(('0' == s[i]) && !negative)
+	{
+		if(('x' == s[i + 1]) || ('X' == s[i + 1]))
+		{
+			base = 16;
+			i = i + 2;
+		}
+		else if(('b' == s[i + 1]) || ('B' == s[i + 1]))
+		{
+			base = 2;
+			i = i + 2;
+		}
+		else base = 8;
+	}
+	while(0 != s[i])
+	{
+		if('_' == s[i])
+		{
+			i = i + 1;
+			continue;
+		}
+		if(!is_digit_for_base(s[i], base)) return FALSE;
+		digits = digits + 1;
+		i = i + 1;
+	}
+	return 0 < digits;
+}
+
+int looks_number(char* s)
+{
+	if('-' == s[0]) return TRUE;
+	if(('0' <= s[0]) && ('9' >= s[0])) return TRUE;
+	return FALSE;
+}
+
 void preserve_other(struct blob* p)
 {
 	struct blob* i;
@@ -505,6 +561,7 @@ void preserve_other(struct blob* p)
 			}
 			else if('<' == c)
 			{
+				require(valid_number(i->Text + 1), "Invalid alignment padding\n");
 				i->Expression = pad_nulls(strtoint(i->Text + 1), i->Text);
 			}
 		}
@@ -733,34 +790,31 @@ void eval_immediates(struct blob* p)
 			{
 				if(in_set(i->Text[0], "%~@!&$"))
 				{
+					if(!looks_number(i->Text + 1)) continue;
+					require(valid_number(i->Text + 1), "Invalid immediate value\n");
 					value = strtoint(i->Text + 1);
 
-					if(('0' == i->Text[1]) || (0 != value))
-					{
-						i->Expression = express_number(value, i->Text[0]);
-					}
+					i->Expression = express_number(value, i->Text[0]);
 				}
 				else if(KNIGHT == Architecture)
 				{
+					if(!looks_number(i->Text)) continue;
+					if(!valid_number(i->Text)) continue;
 					value = strtoint(i->Text);
-					if(('0' == i->Text[0]) || (0 != value))
-					{
-						if(value > 65536) continue;
-						else if(value > 32767) i->Expression = express_number(value, '$');
-						else i->Expression = express_number(value, '@');
-					}
+					if(value > 65536) continue;
+					else if(value > 32767) i->Expression = express_number(value, '$');
+					else i->Expression = express_number(value, '@');
 				}
 			}
 			else if((RISCV32 == Architecture) || (RISCV64 == Architecture))
 			{
 				if(in_set(i->Text[0], "%~@!$"))
 				{
+					if(!looks_number(i->Text + 1)) continue;
+					require(valid_number(i->Text + 1), "Invalid immediate value\n");
 					value = strtoint(i->Text + 1);
 
-					if(('0' == i->Text[1]) || (0 != value))
-					{
-						i->Expression = express_word(value, i->Text[0]);
-					}
+					i->Expression = express_word(value, i->Text[0]);
 				}
 			}
 			else
