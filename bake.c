@@ -388,6 +388,17 @@ char* lookup_env(char* name)
 	return NULL;
 }
 
+void append_string(char* out, int* offset, char* value)
+{
+	int i = 0;
+	while(0 != value[i])
+	{
+		out[*offset] = value[i];
+		*offset = *offset + 1;
+		i = i + 1;
+	}
+}
+
 char* replace_percent(char* pattern, char* stem)
 {
 	char* out = calloc(MAX_WORD, sizeof(char));
@@ -551,46 +562,19 @@ char* expand_vars_depth(char* word, int depth)
 			else if('@' == word[i])
 			{
 				i = i + 1;
-				if(NULL != active_target)
-				{
-					k = 0;
-					while(0 != active_target[k])
-					{
-						out[j] = active_target[k];
-						j = j + 1;
-						k = k + 1;
-					}
-				}
+				if(NULL != active_target) append_string(out, &j, active_target);
 				continue;
 			}
 			else if('%' == word[i])
 			{
 				i = i + 1;
-				if(NULL != active_each)
-				{
-					k = 0;
-					while(0 != active_each[k])
-					{
-						out[j] = active_each[k];
-						j = j + 1;
-						k = k + 1;
-					}
-				}
+				if(NULL != active_each) append_string(out, &j, active_each);
 				continue;
 			}
 			else if('<' == word[i])
 			{
 				i = i + 1;
-				if(NULL != active_first_dep)
-				{
-					k = 0;
-					while(0 != active_first_dep[k])
-					{
-						out[j] = active_first_dep[k];
-						j = j + 1;
-						k = k + 1;
-					}
-				}
+				if(NULL != active_first_dep) append_string(out, &j, active_first_dep);
 				continue;
 			}
 			else
