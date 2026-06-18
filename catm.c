@@ -41,7 +41,14 @@ int main(int argc, char** argv)
 
 	int i;
 	int bytes;
-	char* buffer = calloc(BUFFER_SIZE + 1, sizeof(char));
+	int written;
+	int offset;
+	char* buffer = malloc(BUFFER_SIZE * sizeof(char));
+	if(NULL == buffer)
+	{
+		fputs("Unable to allocate copy buffer\n", stderr);
+		exit(EXIT_FAILURE);
+	}
 	int input;
 	for(i = 2; i < argc ; i =  i + 1)
 	{
@@ -53,12 +60,31 @@ int main(int argc, char** argv)
 			fputs(" is not a valid input file name\n", stderr);
 			exit(EXIT_FAILURE);
 		}
-keep:
 		bytes = read(input, buffer, BUFFER_SIZE);
-		write(output, buffer, bytes);
-		if(BUFFER_SIZE == bytes) goto keep;
+		while(0 < bytes)
+		{
+			offset = 0;
+			while(offset < bytes)
+			{
+				written = write(output, buffer + offset, bytes - offset);
+				if(0 >= written)
+				{
+					fputs("Failed to write output\n", stderr);
+					exit(EXIT_FAILURE);
+				}
+				offset = offset + written;
+			}
+			bytes = read(input, buffer, BUFFER_SIZE);
+		}
+		if(0 > bytes)
+		{
+			fputs("Failed to read input file\n", stderr);
+			exit(EXIT_FAILURE);
+		}
+		close(input);
 	}
 
 	free(buffer);
+	close(output);
 	return EXIT_SUCCESS;
 }

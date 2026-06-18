@@ -155,47 +155,43 @@ char* find_executable(char* name)
 	/* trial is the candidate path returned on success. */
 	char* trial = fe_trial;
 	char* MPATH = fe_mpath; /* Modified PATH */
-	memset(trial, 0, MAX_STRING);
+	trial[0] = 0;
 	strcpy(MPATH, PATH);
 	char* next = find_char(MPATH, ':');
 	int index;
-	int offset;
 	int mpath_length;
 	int name_length;
-	int trial_length;
+	int out;
+	name_length = strlen(name);
 
 	while(NULL != next)
 	{
-		/* Reset trial */
-		trial_length = strlen(trial);
-
-		for(index = 0; index < trial_length; index = index + 1)
-		{
-			trial[index] = 0;
-		}
-
 		next[0] = 0;
 		/* prepend_string(MPATH, prepend_string("/", name)) */
 		mpath_length = strlen(MPATH);
+		out = 0;
 
 		for(index = 0; index < mpath_length; index = index + 1)
 		{
-			require(MAX_STRING > index, "Element of PATH is too long\n");
-			trial[index] = MPATH[index];
+			require(MAX_STRING > out, "Element of PATH is too long\n");
+			trial[out] = MPATH[index];
+			out = out + 1;
 		}
 
-		trial[index] = '/';
-		offset = strlen(trial);
-		name_length = strlen(name);
+		require(MAX_STRING > out, "Element of PATH is too long\n");
+		trial[out] = '/';
+		out = out + 1;
 
 		for(index = 0; index < name_length; index = index + 1)
 		{
-			require(MAX_STRING > index, "Element of PATH is too long\n");
-			trial[index + offset] = name[index];
+			require(MAX_STRING > out, "Element of PATH is too long\n");
+			trial[out] = name[index];
+			out = out + 1;
 		}
 
 		/* Try the trial */
-		require(strlen(trial) < MAX_STRING, "COMMAND TOO LONG!\nABORTING HARD\n");
+		require(MAX_STRING > out, "COMMAND TOO LONG!\nABORTING HARD\n");
+		trial[out] = 0;
 
 		if(0 == access(trial, 0))
 		{
@@ -740,19 +736,10 @@ int set()
 		goto cleanup_set;
 	}
 
-	char* options = calloc(MAX_STRING, sizeof(char));
-	require(options != NULL, "Memory initialization of options in set failed\n");
 	int last_position = strlen(token->value) - 1;
+	char* options = token->value + 1;
 
 	for(i = 0; i < last_position; i = i + 1)
-	{
-		options[i] = token->value[i + 1];
-	}
-
-	/* Parse the options */
-	int options_length = strlen(options);
-
-	for(i = 0; i < options_length; i = i + 1)
 	{
 		if(options[i] == 'a')
 		{

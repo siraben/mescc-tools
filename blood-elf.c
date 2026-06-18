@@ -81,18 +81,21 @@ void consume_token(FILE* source_file, char* s)
 		c = fgetc(source_file);
 		if(EOF == c) break;
 	} while(!in_set(c, " \t\n>"));
+	s[i] = 0;
 }
 
 void storeLabel(FILE* source_file)
 {
 	struct entry* entry = calloc(1, sizeof(struct entry));
+	require(NULL != entry, "failed to allocate entry\n");
 
 	/* Prepend to list */
 	entry->next = jump_table;
 	jump_table = entry;
 
 	/* Store string */
-	entry->name = calloc((max_string + 1), sizeof(char));
+	entry->name = malloc((max_string + 1) * sizeof(char));
+	require(NULL != entry->name, "failed to allocate entry->name\n");
 	consume_token(source_file, entry->name);
 
 	count = count + 1;

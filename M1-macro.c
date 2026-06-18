@@ -101,14 +101,7 @@ void line_error(char* filename, int linenumber)
 
 void ClearScratch()
 {
-	int i = 0;
-	int c = SCRATCH[i];
-	while(0 != c)
-	{
-		SCRATCH[i] = 0;
-		i = i + 1;
-		c = SCRATCH[i];
-	}
+	SCRATCH[0] = 0;
 }
 
 int GetHash(char* s)
@@ -165,9 +158,11 @@ struct Token* newToken(char* filename, int linenumber)
 {
 	struct Token* p;
 
-	p = calloc (1, sizeof (struct Token));
+	p = malloc(sizeof(struct Token));
 	require(NULL != p, "Exhausted available memory\n");
 
+	p->next = NULL;
+	p->contents = NULL;
 	p->filename = filename;
 	p->linenumber = linenumber;
 
@@ -233,6 +228,7 @@ struct Token* store_atom(struct Token* head, char c, char* filename)
 		}
 		if(EOF == ch) break;
 	} while (!in_set(ch, "\t\n "));
+	SCRATCH[i] = 0;
 
 	head->contents = FindBlob();
 	if(NULL == head->contents)
@@ -271,6 +267,7 @@ struct blob* store_string(char c, char* filename)
 			exit(EXIT_FAILURE);
 		}
 	} while(ch != c);
+	SCRATCH[i] = 0;
 
 	struct blob* a = FindBlob();
 	if(NULL == a)

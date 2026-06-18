@@ -150,6 +150,7 @@ int variable_substitute(char* input, struct Token* n, int index)
 	char* var_name = calloc(MAX_STRING, sizeof(char));
 	require(var_name != NULL, "Memory initialization of var_name in variable_substitute failed\n");
 	int offset = index;
+	int input_length = strlen(input);
 
 	/* Get the variable name */
 	int substitute_done = FALSE;
@@ -158,7 +159,7 @@ int variable_substitute(char* input, struct Token* n, int index)
 	{
 		c = input[index];
 		require(MAX_STRING > index, "LINE IS TOO LONG\nABORTING HARD\n");
-		if(EOF == c || '\n' == c || index > strlen(input))
+		if(EOF == c || '\n' == c || index >= input_length)
 		{ /* We never should hit EOF, EOL or run past the end of the line 
 			 while collecting a variable */
 			fputs("IMPROPERLY TERMINATED VARIABLE!\nABORTING HARD\n", stderr);

@@ -49,7 +49,7 @@ int consume_token(FILE* source_file)
 {
 	int i = 0;
 	int c = fgetc(source_file);
-	while(!in_set(c, " \t\n>"))
+	while((' ' != c) && ('\t' != c) && ('\n' != c) && ('>' != c))
 	{
 		scratch[i] = c;
 		i = i + 1;
@@ -57,6 +57,7 @@ int consume_token(FILE* source_file)
 		require(max_string > i, "Consumed token exceeds length restriction\n");
 		if(EOF == c) break;
 	}
+	scratch[i] = 0;
 
 	return c;
 }
@@ -68,7 +69,7 @@ int Throwaway_token(FILE* source_file)
 	{
 		c = fgetc(source_file);
 		if(EOF == c) break;
-	} while(!in_set(c, " \t\n>"));
+	} while((' ' != c) && ('\t' != c) && ('\n' != c) && ('>' != c));
 
 	return c;
 }
@@ -82,11 +83,7 @@ int length(char* s)
 
 void Clear_Scratch(char* s)
 {
-	do
-	{
-		s[0] = 0;
-		s = s + 1;
-	} while(0 != s[0]);
+	s[0] = 0;
 }
 
 void Copy_String(char* a, char* b)
@@ -392,86 +389,90 @@ void line_Comment(FILE* source_file)
 
 int hex(int c, FILE* source_file)
 {
-	if (in_set(c, "0123456789")) return (c - 48);
-	else if (in_set(c, "abcdef")) return (c - 87);
-	else if (in_set(c, "ABCDEF")) return (c - 55);
-	else if (in_set(c, "#;")) line_Comment(source_file);
+	if (('0' <= c) && (c <= '9')) return (c - 48);
+	else if (('a' <= c) && (c <= 'f')) return (c - 87);
+	else if (('A' <= c) && (c <= 'F')) return (c - 55);
+	else if (('#' == c) || (';' == c)) line_Comment(source_file);
 	else if ('\n' == c) linenumber = linenumber + 1;
 	return -1;
 }
 
 int octal(int c, FILE* source_file)
 {
-	if (in_set(c, "01234567")) return (c - 48);
-	else if (in_set(c, "#;")) line_Comment(source_file);
+	if (('0' <= c) && (c <= '7')) return (c - 48);
+	else if (('#' == c) || (';' == c)) line_Comment(source_file);
 	else if ('\n' == c) linenumber = linenumber + 1;
 	return -1;
 }
 
 int binary(int c, FILE* source_file)
 {
-	if (in_set(c, "01")) return (c - 48);
-	else if (in_set(c, "#;")) line_Comment(source_file);
+	if (('0' == c) || ('1' == c)) return (c - 48);
+	else if (('#' == c) || (';' == c)) line_Comment(source_file);
 	else if ('\n' == c) linenumber = linenumber + 1;
 	return -1;
 }
 
 void process_byte(char c, FILE* source_file, int write)
 {
+	int value;
 	if(HEX == ByteMode)
 	{
-		if(0 <= hex(c, source_file))
+		value = hex(c, source_file);
+		if(0 <= value)
 		{
 			if(toggle)
 			{
-				if(write) fputc(((hold * 16)) + hex(c, source_file), output);
+				if(write) fputc(((hold * 16)) + value, output);
 				ip = ip + 1;
 				hold = 0;
 			}
 			else
 			{
-				hold = hex(c, source_file);
+				hold = value;
 			}
 			toggle = !toggle;
 		}
 	}
 	else if(OCTAL ==ByteMode)
 	{
-		if(0 <= octal(c, source_file))
+		value = octal(c, source_file);
+		if(0 <= value)
 		{
 			if(2 == toggle)
 			{
-				if(write) fputc(((hold * 8)) + octal(c, source_file), output);
+				if(write) fputc(((hold * 8)) + value, output);
 				ip = ip + 1;
 				hold = 0;
 				toggle = 0;
 			}
 			else if(1 == toggle)
 			{
-				hold = ((hold * 8) + octal(c, source_file));
+				hold = ((hold * 8) + value);
 				toggle = 2;
 			}
 			else
 			{
-				hold = octal(c, source_file);
+				hold = value;
 				toggle = 1;
 			}
 		}
 	}
 	else if(BINARY == ByteMode)
 	{
-		if(0 <= binary(c, source_file))
+		value = binary(c, source_file);
+		if(0 <= value)
 		{
 			if(7 == toggle)
 			{
-				if(write) fputc((hold * 2) + binary(c, source_file), output);
+				if(write) fputc((hold * 2) + value, output);
 				ip = ip + 1;
 				hold = 0;
 				toggle = 0;
 			}
 			else
 			{
-				hold = ((hold * 2) + binary(c, source_file));
+				hold = ((hold * 2) + value);
 				toggle = toggle + 1;
 			}
 		}

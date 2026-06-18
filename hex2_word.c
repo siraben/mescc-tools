@@ -167,17 +167,21 @@ unsigned sr_nextb()
 
 void DoByte(char c, FILE* source_file, int write, int update)
 {
+	int value;
+	int byte;
 	if(HEX == ByteMode)
 	{
-		if(0 <= hex(c, source_file))
+		value = hex(c, source_file);
+		if(0 <= value)
 		{
 			if(toggle)
 			{
-				if(write) fputc(((hold * 16)) + hex(c, source_file) ^ sr_nextb(), output);
+				byte = (hold * 16) + value;
+				if(write) fputc(byte ^ sr_nextb(), output);
 				ip = ip + 1;
 				if(update)
 				{
-					hold = (hold * 16) + hex(c, source_file);
+					hold = byte;
 					tempword = (tempword << 8) ^ hold;
 					updates = updates + 1;
 				}
@@ -185,22 +189,24 @@ void DoByte(char c, FILE* source_file, int write, int update)
 			}
 			else
 			{
-				hold = hex(c, source_file);
+				hold = value;
 			}
 			toggle = !toggle;
 		}
 	}
 	else if(OCTAL ==ByteMode)
 	{
-		if(0 <= octal(c, source_file))
+		value = octal(c, source_file);
+		if(0 <= value)
 		{
 			if(2 == toggle)
 			{
-				if(write) fputc(((hold * 8)) + octal(c, source_file) ^ sr_nextb(), output);
+				byte = (hold * 8) + value;
+				if(write) fputc(byte ^ sr_nextb(), output);
 				ip = ip + 1;
 				if(update)
 				{
-					hold = ((hold * 8) + octal(c, source_file));
+					hold = byte;
 					tempword = (tempword << 8) ^ hold;
 					updates = updates + 1;
 				}
@@ -209,27 +215,29 @@ void DoByte(char c, FILE* source_file, int write, int update)
 			}
 			else if(1 == toggle)
 			{
-				hold = ((hold * 8) + octal(c, source_file));
+				hold = ((hold * 8) + value);
 				toggle = 2;
 			}
 			else
 			{
-				hold = octal(c, source_file);
+				hold = value;
 				toggle = 1;
 			}
 		}
 	}
 	else if(BINARY == ByteMode)
 	{
-		if(0 <= binary(c, source_file))
+		value = binary(c, source_file);
+		if(0 <= value)
 		{
 			if(7 == toggle)
 			{
-				if(write) fputc((hold * 2) + binary(c, source_file) ^ sr_nextb(), output);
+				byte = (hold * 2) + value;
+				if(write) fputc(byte ^ sr_nextb(), output);
 				ip = ip + 1;
 				if(update)
 				{
-					hold = ((hold * 2) + binary(c, source_file));
+					hold = byte;
 					tempword = (tempword << 8) ^ hold;
 					updates = updates + 1;
 				}
@@ -238,7 +246,7 @@ void DoByte(char c, FILE* source_file, int write, int update)
 			}
 			else
 			{
-				hold = ((hold * 2) + binary(c, source_file));
+				hold = ((hold * 2) + value);
 				toggle = toggle + 1;
 			}
 		}
@@ -281,6 +289,12 @@ void WordFirstPass(struct input_files* input)
 			while (updates < 4)
 			{
 				c = fgetc(source_file);
+				if(EOF == c)
+				{
+					line_error();
+					fputs("IMPROPERLY TERMINATED WORD!\nABORTING HARD\n", stderr);
+					exit(EXIT_FAILURE);
+				}
 				DoByte(c, source_file, FALSE, TRUE);
 			}
 			ip = ip - 4;
@@ -349,6 +363,12 @@ void WordSecondPass(struct input_files* input)
 			while (updates < 4)
 			{
 				c = fgetc(source_file);
+				if(EOF == c)
+				{
+					line_error();
+					fputs("IMPROPERLY TERMINATED WORD!\nABORTING HARD\n", stderr);
+					exit(EXIT_FAILURE);
+				}
 				DoByte(c, source_file, FALSE, TRUE);
 			}
 			UpdateShiftRegister('.', tempword);
