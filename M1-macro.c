@@ -833,6 +833,7 @@ int main(int argc, char **argv)
 		}
 		else if(match(argv[option_index], "-A") || match(argv[option_index], "--architecture"))
 		{
+			require(NULL != argv[option_index + 1], "Architecture option requires an argument\n");
 			arch = argv[option_index + 1];
 			if(match("knight-native", arch) || match("knight-posix", arch)) Architecture = KNIGHT;
 			else if(match("x86", arch)) Architecture = X86;
@@ -867,6 +868,7 @@ int main(int argc, char **argv)
 		}
 		else if(match(argv[option_index], "-f") || match(argv[option_index], "--file"))
 		{
+			require(NULL != argv[option_index + 1], "File option requires an argument\n");
 			filename = argv[option_index + 1];
 			source_file = fopen(filename, "r");
 
@@ -886,6 +888,12 @@ int main(int argc, char **argv)
 		}
 		else if(match(argv[option_index], "-o") || match(argv[option_index], "--output"))
 		{
+			if(NULL == argv[option_index + 1])
+			{
+				option_index = option_index + 1;
+				continue;
+			}
+
 			destination_file = fopen(argv[option_index + 1], "w");
 
 			if(NULL == destination_file)
