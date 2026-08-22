@@ -1292,7 +1292,7 @@ void populate_env(char** envp)
 		require(strlen(envp[i]) < MAX_STRING, "Environment variable exceeds length restriction\n");
 		strcpy(envp_line, envp[i]);
 
-		while(envp_line[j] != '=')
+		while((0 != envp_line[j]) && ('=' != envp_line[j]))
 		{
 			/* Copy over everything up to = to var */
 			n->var[j] = envp_line[j];
