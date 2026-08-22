@@ -51,7 +51,7 @@ int consume_token(FILE* source_file)
 {
 	int i = 0;
 	int c = fgetc(source_file);
-	while(!in_set(c, " \t\n>"))
+	while(!((' ' == c) || ('\t' == c) || ('\n' == c) || ('>' == c)))
 	{
 		scratch[i] = c;
 		i = i + 1;
@@ -70,7 +70,7 @@ int Throwaway_token(FILE* source_file)
 	{
 		c = fgetc(source_file);
 		if(EOF == c) break;
-	} while(!in_set(c, " \t\n>"));
+	} while(!((' ' == c) || ('\t' == c) || ('\n' == c) || ('>' == c)));
 
 	return c;
 }
@@ -427,7 +427,7 @@ void storePointer(char ch, FILE* source_file)
 void line_Comment(FILE* source_file)
 {
 	int c = fgetc(source_file);
-	while(!in_set(c, "\n\r"))
+	while(!(('\n' == c) || ('\r' == c)))
 	{
 		if(EOF == c) break;
 		c = fgetc(source_file);
@@ -574,7 +574,7 @@ void first_pass(struct input_files* input)
 		}
 
 		/* check for and deal with relative/absolute pointers to labels */
-		if(in_set(c, "!@$~%&"))
+		if(('!' == c) || ('@' == c) || ('$' == c) || ('~' == c) || ('%' == c) || ('&' == c))
 		{ /* deal with 1byte pointer !; 2byte pointers (@ and $); 3byte pointers ~; 4byte pointers (% and &) */
 			Update_Pointer(c);
 			c = Throwaway_token(source_file);
@@ -621,7 +621,7 @@ void second_pass(struct input_files* input)
 	for(c = fgetc(source_file); EOF != c; c = fgetc(source_file))
 	{
 		if(':' == c) c = Throwaway_token(source_file); /* Deal with : */
-		else if(in_set(c, "!@$~%&")) storePointer(c, source_file);  /* Deal with !, @, $, ~, % and & */
+		else if(('!' == c) || ('@' == c) || ('$' == c) || ('~' == c) || ('%' == c) || ('&' == c)) storePointer(c, source_file);  /* Deal with !, @, $, ~, % and & */
 		else if('<' == c) pad_to_align(TRUE);
 		else if('^' == c) ALIGNED = TRUE;
 		else process_byte(c, source_file, TRUE);

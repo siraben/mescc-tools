@@ -288,12 +288,12 @@ void WordFirstPass(struct input_files* input)
 			}
 			ip = ip - 4;
 		}
-		else if(in_set(c, "!@$~"))
+		else if(('!' == c) || ('@' == c) || ('$' == c) || ('~' == c))
 		{
 			/* Don't update IP */
 			c = Throwaway_token(source_file);
 		}
-		else if(in_set(c, "%&"))
+		else if(('%' == c) || ('&' == c))
 		{
 			ip = ip + 4;
 			c = Throwaway_token(source_file);
@@ -357,8 +357,8 @@ void WordSecondPass(struct input_files* input)
 			UpdateShiftRegister('.', tempword);
 			ip = ip - 4;
 		}
-		else if(in_set(c, "%&")) WordStorePointer(c, source_file);  /* Deal with % and & */
-		else if(in_set(c, "!@$~"))
+		else if(('%' == c) || ('&' == c)) WordStorePointer(c, source_file);  /* Deal with % and & */
+		else if(('!' == c) || ('@' == c) || ('$' == c) || ('~' == c))
 		{
 			Clear_Scratch(scratch);
 			consume_token(source_file);
