@@ -281,6 +281,7 @@ void WordFirstPass(struct input_files* input)
 			while (updates < 4)
 			{
 				c = fgetc(source_file);
+				require(EOF != c, "Unfinished word, unexpected EOF\nABORTING HARD\n");
 				DoByte(c, source_file, FALSE, TRUE);
 			}
 			ip = ip - 4;
@@ -349,6 +350,7 @@ void WordSecondPass(struct input_files* input)
 			while (updates < 4)
 			{
 				c = fgetc(source_file);
+				require(EOF != c, "Unfinished word, unexpected EOF\nABORTING HARD\n");
 				DoByte(c, source_file, FALSE, TRUE);
 			}
 			UpdateShiftRegister('.', tempword);
