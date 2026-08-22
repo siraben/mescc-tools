@@ -22,6 +22,8 @@
 /* Globals */
 FILE* output;
 struct entry** jump_tables;
+int jump_table_buckets = 65536; /* power of two; grows with the number of labels */
+int label_count;
 int BigEndian;
 int Base_Address;
 int Architecture;
@@ -107,13 +109,52 @@ int GetHash(char* s)
 		i = i * 31 + s[0];
 		s = s + 1;
 	}
-	return (i & 0xFFFF);
+	return i;
+}
+
+/* Double the jump table so chains stay short; rehash every entry,
+ * preserving the relative order of entries that share a name
+ * (GetTarget returns the most recently defined of duplicates).
+ */
+void jump_table_grow()
+{
+	int new_size = jump_table_buckets * 2;
+	struct entry** table = calloc(new_size + 1, sizeof(struct entry*));
+	require(NULL != table, "Failed to grow our jump_tables\n");
+
+	int j;
+	for(j = 0; j < jump_table_buckets; j = j + 1)
+	{
+		/* Reverse the chain so that prepending below keeps
+		 * newest-first order for duplicate names */
+		struct entry* reversed = NULL;
+		struct entry* i = jump_tables[j];
+		while(NULL != i)
+		{
+			struct entry* next = i->next;
+			i->next = reversed;
+			reversed = i;
+			i = next;
+		}
+		while(NULL != reversed)
+		{
+			struct entry* next = reversed->next;
+			int h = GetHash(reversed->name) & (new_size - 1);
+			reversed->next = table[h];
+			table[h] = reversed;
+			reversed = next;
+		}
+	}
+
+	free(jump_tables);
+	jump_table_buckets = new_size;
+	jump_tables = table;
 }
 
 unsigned GetTarget(char* c)
 {
 	struct entry* i;
-	for(i = jump_tables[GetHash(c)]; NULL != i; i = i->next)
+	for(i = jump_tables[GetHash(c) & (jump_table_buckets - 1)]; NULL != i; i = i->next)
 	{
 		if(match(c, i->name))
 		{
@@ -142,9 +183,13 @@ int storeLabel(FILE* source_file, int ip)
 	Clear_Scratch(scratch);
 
 	/* Prepend to list */
-	int h = GetHash(entry->name);
+	int h = GetHash(entry->name) & (jump_table_buckets - 1);
 	entry->next = jump_tables[h];
 	jump_tables[h] = entry;
+
+	/* Keep the average chain length at one or less */
+	label_count = label_count + 1;
+	if(label_count > jump_table_buckets) jump_table_grow();
 
 	return c;
 }
