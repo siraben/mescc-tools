@@ -152,7 +152,7 @@ char* find_executable(char* name)
 
 		for(index = 0; index < name_length; index = index + 1)
 		{
-			require(MAX_STRING > index, "Element of PATH is too long\n");
+			require(MAX_STRING > (index + offset), "Element of PATH is too long\n");
 			trial[index + offset] = name[index];
 		}
 
@@ -1297,12 +1297,6 @@ void populate_env(char** envp)
 			/* Copy over everything up to = to var */
 			n->var[j] = envp_line[j];
 			j = j + 1;
-		}
-
-		/* If we get strange input, we need to ignore it */
-		if(n->var == NULL)
-		{
-			continue;
 		}
 
 		j = j + 1; /* Skip over = */
