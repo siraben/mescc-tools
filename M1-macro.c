@@ -90,6 +90,7 @@ struct blob* newline_blob;
 int blob_count;
 char* SCRATCH;
 struct blob** hash_table;
+int hash_size = 65536; /* power of two; grows with the number of blobs */
 
 void line_error(char* filename, int linenumber)
 {
@@ -119,12 +120,35 @@ int GetHash(char* s)
 		i = (i << 5) + i + s[0];
 		s = s + 1;
 	}
-	return i & 0xFFFF;
+	return i;
+}
+
+/* Double the hash table so that looking a blob up stays O(1) expected
+ * as the number of interned strings grows; rehash every blob.
+ */
+void GrowHash()
+{
+	int new_size = hash_size * 2;
+	struct blob** table = calloc(new_size + 1, sizeof(struct blob*));
+	require(NULL != table, "failed to grow our hash_table\n");
+
+	struct blob* i = blob_list;
+	while(NULL != i)
+	{
+		int h = GetHash(i->Text) & (new_size - 1);
+		i->hash_next = table[h];
+		table[h] = i;
+		i = i->next;
+	}
+
+	free(hash_table);
+	hash_table = table;
+	hash_size = new_size;
 }
 
 struct blob* FindBlob()
 {
-	int hash = GetHash(SCRATCH);
+	int hash = GetHash(SCRATCH) & (hash_size - 1);
 	struct blob* i = hash_table[hash];
 	while(NULL != i)
 	{
@@ -137,7 +161,7 @@ struct blob* FindBlob()
 
 void AddHash(struct blob* a, char* s)
 {
-	int i = GetHash(s);
+	int i = GetHash(s) & (hash_size - 1);
 	a->hash_next = hash_table[i];
 	hash_table[i] = a;
 }
@@ -145,6 +169,7 @@ void AddHash(struct blob* a, char* s)
 void NewBlob(int size)
 {
 	blob_count = blob_count + 1;
+	if(blob_count > hash_size) GrowHash();
 	struct blob* a = calloc(1, sizeof(struct blob));
 	require(NULL != a, "Exhausted available memory\n");
 	a->Text = calloc(size + 1, sizeof(char));
