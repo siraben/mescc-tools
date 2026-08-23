@@ -30,6 +30,15 @@ char* env_lookup(char* variable);
  * VARIABLE HANDLING FUNCTIONS
  */
 
+/*
+ * Position of the first ":-" inside the token currently being processed,
+ * or -1 when the token has none. Computed once per token by
+ * handle_variables() so that each ${} substitution can test for
+ * ${var:-text} syntax in constant time instead of rescanning the rest
+ * of the token.
+ */
+int ifset_position = -1;
+
 /* Substitute a variable into n->value */
 int run_substitution(char* var_name, struct Token* n)
 {
@@ -62,23 +71,14 @@ int variable_substitute_ifset(char* input, struct Token* n, int index)
 	/*
 	 * Check if we should even be performing this function.
 	 * We perform this function when we come across ${var:-text} syntax.
+	 * handle_variables() already located the first ":-" of the token,
+	 * so whether an occurrence exists at or after index reduces to a
+	 * comparison against that position.
 	 */
 	int index_old = index;
-	int perform = FALSE;
-	int input_length = strlen(input);
-	while(index < input_length)
-	{ /* Loop over each character */
-		if(input[index] == ':' && input[index + 1] == '-')
-		{ /* Yes, this is (most likely) ${var:-text} format. */
-			perform = TRUE;
-			break;
-		}
-		index = index + 1;
-	}
-
-	/* Don't perform it if we shouldn't */
-	if(perform == FALSE) return index_old;
+	if((-1 == ifset_position) || (ifset_position < index_old)) return index_old;
 	index = index_old;
+	int input_length = strlen(input);
 
 	/*
 	 * Get offset.
@@ -242,6 +242,23 @@ void handle_variables(char** argv, struct Token* n)
 	/* Reset n->value */
 	n->value = calloc(MAX_STRING, sizeof(char));
 	require(n->value != NULL, "Memory initialization of n->value in collect_variable failed\n");
+
+	/*
+	 * Locate the first ":-" of this token once, so variable_substitute_ifset()
+	 * does not have to rescan the remainder of the token for it on every ${}
+	 * substitution.
+	 */
+	ifset_position = -1;
+	int i = 0;
+	while(0 != input[i])
+	{
+		if((':' == input[i]) && ('-' == input[i + 1]))
+		{
+			ifset_position = i;
+			break;
+		}
+		i = i + 1;
+	}
 
 	/* Copy everything up to the $ */
 	/*
